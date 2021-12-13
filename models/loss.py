@@ -6,6 +6,7 @@ import numpy as np
 
 class PricingLoss(keras.losses.Loss):
     """Defines the Pricing Loss for GAN model."""
+
     def __init__(self):
         """Init."""
         super().__init__()
