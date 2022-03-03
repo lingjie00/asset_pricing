@@ -1,75 +1,86 @@
-"""Defines the loss function for GAN model."""
+"""Loss functions used in training."""
 import tensorflow as tf
-import tensorflow.keras as keras
-import numpy as np
 
 
-class PricingLoss(keras.losses.Loss):
-    """Defines the Pricing Loss for GAN model."""
+def PricingLoss(
+    sdf: tf.Tensor,
+    moment: tf.Tensor,
+    returns: tf.Tensor,
+    mask_key: float
+) -> tf.Tensor:
+    """Compute Pricing Loss for GAN.
 
-    def __init__(self):
-        """Init."""
-        super().__init__()
+    Loss is based on No Arbitrage equation and pricing error.
+    No Arbitrage equation: E(M_t+1 x R^e) = 0
+    Pricing error: E(M_t+1 x R^e) != 0
 
-    def __call__(self,
-                 sdf: tf.Tensor,
-                 moment: tf.Tensor,
-                 return_data: tf.Tensor,
-                 mask: tf.Tensor,
-                 verbose: bool = False
-                 ):
-        """Compute GAN training loss."""
-        ###################
-        # Preprocess data #
-        ###################
-        mask = tf.cast(mask, "float")
-        Ti = tf.reduce_sum(mask, axis=0)
+    Params:
+        sdf: stochastic discount factor
+        moment: factors
+        returns: excess returns
+        mask_key: mask value
+    """
+    # compute mask
+    mask = returns != mask_key
 
-        ################
-        # Compute Loss #
-        ################
-        if verbose:
-            print(f"mask shape = {mask.shape}")
-            print(f"return data shape = {return_data.shape}")
-            print(f"SDF shape: {sdf.shape}")
-            print(f"moment shape: {moment.shape}")
+    # convert dtypes, ensure all data types are float32
+    moment = tf.cast(moment, "float32")
+    sdf = tf.cast(sdf, "float32")
+    returns = tf.cast(returns, "float32")
+    float_mask = tf.cast(mask, "float32")
 
-        masked_return = return_data * mask
-        if verbose:
-            print(f"masked return shape: {masked_return.shape}")
+    # compute the actual observation per period for each firm
+    total_obs = tf.reduce_sum(float_mask, axis=0)
 
-        empirical_sum = sdf * masked_return * moment
-        empirical_sum = tf.reduce_sum(empirical_sum, axis=1)
-        if verbose:
-            print(f"empirical mean shape: {empirical_sum.shape}")
+    # compute loss
+    masked_return = tf.multiply(returns, float_mask)
+    no_arbitrage = tf.multiply(masked_return, sdf)
+    pricing_loss = tf.multiply(no_arbitrage, moment)
+    empirical_sum = tf.reduce_sum(
+        pricing_loss,
+        axis=1
+    )
+    empirical_mean = tf.divide(empirical_sum, total_obs)
+    loss = tf.square(empirical_mean)
 
-        empirical_mean = empirical_sum / Ti
-        if verbose:
-            print(f"empirical mean shape: {empirical_sum.shape}")
+    # weighted loss
+    max_obs = tf.reduce_max(total_obs)
+    loss_weight = tf.divide(total_obs, max_obs)
+    weighted_loss = tf.multiply(loss, loss_weight)
 
-        loss = tf.square(empirical_mean)
-        if verbose:
-            print(f"loss shape: {loss.shape}")
+    # average loss
+    reduce_loss = tf.reduce_mean(weighted_loss)
 
-        # loss is weighted with the number of valid periods
-        Tmax = tf.reduce_max(Ti)  # max time period
-        loss_weight = Ti / Tmax
-        loss *= loss_weight
+    return reduce_loss
 
-        loss = tf.reduce_mean(loss)
-        if verbose:
-            print(f"normalized loss shape: {loss.shape}")
-            print(loss)
-        return loss
 
-    def sharpe(self, portfolio: tf.Tensor):
-        """Calculate the SHARPE based on a portfolio of returns."""
-        if not (type(portfolio) == np.ndarray):
-            portfolio = portfolio.numpy()
-        return np.mean(portfolio / portfolio.std())
+def sharpe(portfolio: tf.Tensor) -> tf.Tensor:
+    """Calculate the SHARPE based on a portfolio of returns.
 
-    def sharpe_loss(self,
-                    sdf: tf.Tensor):
-        """Calculate the SHARPE as a loss based on sdf."""
-        portfolio = 1 - sdf
-        return self.sharpe(portfolio)
+    params:
+        portfolio: excess returns over time
+
+    returns:
+        SHARPE loss (tf.Tensor)
+    """
+    assert len(tf.squeeze(portfolio).shape) == 1
+
+    mean = tf.math.reduce_mean(portfolio)
+    std = tf.math.reduce_std(portfolio)
+    portfolio_sharpe = tf.divide(mean, std)
+    return portfolio_sharpe
+
+
+def sharpe_loss(sdf: tf.Tensor) -> tf.Tensor:
+    """Calculate the SHARPE as a loss based on sdf.
+
+    params:
+        sdf: stochastic discount factor
+
+    returns:
+        SHARPE loss (tf.Tensor)
+    """
+    # since sdf = 1 - efficient portfolio
+    # efficient portfolio = 1 - sdf by construction
+    portfolio = 1 - sdf
+    return sharpe(portfolio)

@@ -1,128 +1,120 @@
 """Implement Stochastic Discount Factor (SDF) Network."""
 import tensorflow as tf
 import tensorflow.keras as keras
+from tensorflow.keras import layers
 
-"""
-Model structure:
-=macro data= -> |RNN| + =firm data= -> |FFN| -> |SDF|
-
-Input data:
-    - macro data (time series)
-    - firm data (time series, entity level)
-
-Output:
-    - SDF
-"""
+from .data import masking
 
 
-class SDFModel(keras.Model):
-    """Builds a SDF model.
+def compute_sdf(
+        sdf_w: tf.Tensor,
+        returns: tf.Tensor,
+        mask_key: float,
+) -> tf.Tensor:
+    """Computes the SDF M_t+1 with given weight and returns.
 
-    Procedure:
-        Pre-process data
-        -> Macro data RNN layer
-        -> (Macro + firm data) Dense layer
-        -> compute SDF
+    sdf should be time variant, firm invariant."""
+
+    # pre-processing data:
+    # 1. reduce dimension of sdf weights
+    # 2. create mask based on returns and mask key
+    # 3. convert returns data types if not already float32
+    sdf_w = tf.reshape(sdf_w, [-1])
+    mask = returns != mask_key
+    if returns.dtype != "float32":
+        # change data type to float32 for all tensors
+        returns = tf.cast(returns, "float32")
+
+    # construct portfolio (aka weighted return)
+    returns = tf.boolean_mask(returns, mask)
+    weighted_return = tf.multiply(returns, sdf_w)
+
+    # masked portfolio (due to some firms having missing value)
+    num_obs = tf.reduce_sum(tf.cast(mask, "int32"), axis=1)
+    masked_weighted_return = tf.split(weighted_return, num_obs)
+    # each item here is tangency portfolio at time t
+    items = []
+    for item in masked_weighted_return:
+        item = tf.reduce_sum(item, keepdims=True)
+        items.append(item)
+    portfolio = tf.concat(items, axis=0)
+
+    # construct sdf
+    # author use sdf = 1 + portfolio in code
+    # however, in paper it was written as sdf = 1 - portfolio
+    # we kept the paper implementation
+    # there is no difference in the end result
+    sdf = 1 - portfolio
+    sdf = tf.expand_dims(sdf, axis=1)
+    return sdf
+
+
+def create_discriminant_network(
+    firm_shape: tuple,
+    macro_network: keras.Model,
+    returns: tf.Tensor,
+    dense_units: int,
+    dropout_rate: float,
+    mask_key: float,
+    name: str = "discriminant_network"
+):
+    """Creates discriminant network.
+
+    params:
+        firm_shape: tuple of (num of firms, num of chars, )
+        macro_network: macro LSTM network
+        name: name of the model
+        dense_units: num of hidden units in dense layer
     """
+    macro_input = macro_network.get_layer(
+        name="macro_input"
+    ).input
+    macro_output = macro_network.get_layer(
+        name="macro_output").output
+    firm_input = layers.Input(
+        firm_shape,
+        name="firm_input"
+    )
+    combined_input = layers.Concatenate(
+        axis=2,
+        name="combined_input")([
+            firm_input, macro_output
+        ])
+    combined_input = layers.Lambda(
+        lambda x: masking(x, returns, mask_key),
+        name="masked_input"
+    )(combined_input)
+    dense1 = layers.Dense(
+        dense_units,
+        name="dense1",
+        activation="relu"
+    )(combined_input)
+    dense1 = layers.Dropout(
+        rate=dropout_rate,
+        name="dropout1"
+    )(dense1)
+    dense2 = layers.Dense(
+        dense_units,
+        name="dense2",
+        activation="relu"
+    )(dense1)
+    dense2 = layers.Dropout(
+        rate=dropout_rate,
+        name="dropout2"
+    )(dense2)
+    sdf_w = layers.Dense(
+        1,
+        name="sdf_w",
+        activation="linear"
+    )(dense2)
+    sdf = layers.Lambda(
+        lambda w: compute_sdf(w, returns, mask_key),
+        name="sdf"
+    )(sdf_w)
+    network = keras.Model(
+        inputs=[macro_input, firm_input],
+        outputs=sdf,
+        name=name
+    )
 
-    def __init__(self,
-                 LSTM_units: int = 4,
-                 Dense_units: int = 32,
-                 Dropout_rate: float = 0.50):
-        """Init model."""
-        super().__init__(name="SDF")
-        self.lstm = keras.layers.LSTM(units=LSTM_units, name="State_RNN")
-        self.dense1 = keras.layers.Dense(units=Dense_units, activation="relu",
-                                         name="SDF_dense1")
-        self.dense2 = keras.layers.Dense(units=Dense_units, activation="relu",
-                                         name="SDF_dense2")
-        self.dense_output = keras.layers.Dense(units=1, activation="linear",
-                                               name="SDF_w")
-        self.dropout = keras.layers.Dropout(Dropout_rate)
-
-    def call(self,
-             inputs: list,
-             training: bool,
-             verbose: bool = False
-             ):
-        """Defines the network architecture.
-
-        :param inputs: Input data = [macroeconomic data, firm data]
-        macroeconomic data: Time * macro feature dimension * 1
-        firm data: Time * No firms * firm feature dimension + 1
-                    + 1 for the Return data
-        :param training: only during training will we use dropout
-        """
-        ###################
-        # Data processing #
-        ###################
-        macro_data, firm_data, return_data, mask = inputs
-
-        ########################
-        # Macro data RNN layer #
-        ########################
-        # Macro data -> Dropout -> LSTM
-        if verbose:
-            if training:
-                print("Training SDF")
-            else:
-                print("Get SDF weight")
-
-        h = self.lstm(macro_data)
-        h = self.dropout(h, training=training)
-
-        ###################################
-        # (Macro + firm data) Dense layer #
-        ###################################
-        # Merge macro data with firm data
-        # We need to repeat macro data for each firm
-        # Therefore, the final macro data dimension:
-        #   Time * No firms * macro feature
-        num_firms = firm_data.shape[1]
-        h = tf.expand_dims(h, axis=1)  # insert Tensor of 1s in axis
-        h = tf.tile(h, [1, num_firms, 1])  # repeat macro data for each firm
-
-        if verbose:
-            print(f"num firms = {num_firms}")
-            print(f"macro LSTM shape = {h.shape}")
-
-        # The input data will be dim:
-        #  total time * (macro feature + firm feature)
-        firm_data = tf.cast(firm_data, "float")
-        h = tf.cast(h, "float")
-        concat = tf.concat([firm_data, h], axis=2)
-
-        if verbose:
-            print(f"firm data shape = {firm_data.shape}")
-            print(f"concat shape = {concat.shape}")
-
-        # mask input data
-        if verbose:
-            print(f"mask shape = {mask.shape}")
-        mask = tf.cast(mask, "float")
-        concat_mask = tf.expand_dims(mask, axis=2)
-        concat_mask = tf.repeat(concat_mask, concat.shape[2], axis=2)
-
-        if verbose:
-            print(f"concat mask shape = {concat_mask.shape}")
-        masked_concat = tf.multiply(concat, concat_mask)
-
-        if verbose:
-            print(f"masked concat shape = {masked_concat.shape}")
-
-        # Training macro + firm data
-        w = self.dense1(masked_concat)
-        w = self.dropout(w, training=training)
-        w = self.dense2(w)
-        w = self.dropout(w, training=training)
-        w = self.dense_output(w)  # dim = (time entry, num firms)
-        w = tf.squeeze(w)
-
-        if verbose:
-            print(f"SDF weight shape = {w.shape}")
-
-        weighted_return = w * return_data * mask
-        SDF = 1 - tf.reduce_sum(weighted_return, axis=1)
-        SDF = tf.expand_dims(SDF, axis=1)
-
-        return SDF
+    return network
