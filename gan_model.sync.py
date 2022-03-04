@@ -2,19 +2,40 @@
 # import library
 from IPython.display import Image, display
 import logging
-import importlib
+import datetime
+import json
 
 import numpy as np
-import pandas as pd
-import statsmodels.api as sm
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras.utils import model_to_dot
 
-import models.gan as gan
-importlib.reload(gan)
+from models.gan import create_gan
+from models.loss import PricingLoss, sharpe_loss
+from models.training import train_gan
 
-logging.basicConfig(level=logging.DEBUG)
+# logging
+logging.basicConfig(
+    format='%(asctime)s %(message)s',
+    filename="training.log", level=logging.DEBUG)
+# tensorboard
+current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
+valid_log_dir = 'logs/gradient_tape/' + current_time + '/valid'
+train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+valid_summary_writer = tf.summary.create_file_writer(valid_log_dir)
+# config files
+with open("config.json", "r") as file:
+    config = json.load(file)
+    config_train = config["training"]
+    discriminant_epochs = config_train["discriminant_epochs"]
+    generative_epochs = config_train["generative_epochs"]
+    gan_epochs = config_train["gan_epochs"]
+    min_epochs = config_train["min_epochs"]
+    patience = config_train["patience"]
+    load_weights = config_train["load_weights"]
+    save_weights = config_train["save_weights"]
+    mask_key = config["hyperparameters"]["mask_key"]
 
 # set seed for TensorFlow
 tf.random.set_seed(20220102)
@@ -25,7 +46,7 @@ tf.random.set_seed(20220102)
 gpus = tf.config.list_physical_devices("GPU")
 
 if gpus:
-    print(gpus)
+    logging.info(gpus)
 else:
     raise Exception("No GPU")
 
@@ -40,37 +61,56 @@ def view_pydot(pdot):
 # %%
 # load data
 path = "../datasets"
+configpath = "config.json"
 
 # training data
 macro_train_zip = np.load(f"{path}/macro/macro_train.npz")
 firm_train_zip = np.load(f"{path}/char/Char_train.npz")
-macro_train = macro_train_zip["data"]
-firm_train = firm_train_zip["data"]
-return_train = firm_train[:, :, 0]
-firm_train = firm_train[:, :, 1:]
+train_macro = macro_train_zip["data"]
+train_firm = firm_train_zip["data"]
+train_return = train_firm[:, :, 0]
+train_firm = train_firm[:, :, 1:]
+
+train_data = {
+    "returns": train_return,
+    "macro": train_macro,
+    "firm": train_firm
+}
 
 # validation data
 macro_valid_zip = np.load(f"{path}/macro/macro_valid.npz")
 firm_valid_zip = np.load(f"{path}/char/Char_valid.npz")
-macro_valid = macro_valid_zip["data"]
-firm_valid = firm_valid_zip["data"]
-return_valid = firm_valid[:, :, 0]
-firm_valid = firm_valid[:, :, 1:]
+valid_macro = macro_valid_zip["data"]
+valid_firm = firm_valid_zip["data"]
+valid_return = valid_firm[:, :, 0]
+valid_firm = valid_firm[:, :, 1:]
+
+valid_data = {
+    "returns": valid_return,
+    "macro": valid_macro,
+    "firm": valid_firm
+}
 
 # test data
 macro_test_zip = np.load(f"{path}/macro/macro_test.npz")
 firm_test_zip = np.load(f"{path}/char/Char_test.npz")
-macro_test = macro_test_zip["data"]
-firm_test = firm_test_zip["data"]
-return_test = firm_test[:, :, 0]
-firm_test = firm_test[:, :, 1:]
+test_macro = macro_test_zip["data"]
+test_firm = firm_test_zip["data"]
+test_return = test_firm[:, :, 0]
+test_firm = test_firm[:, :, 1:]
 
-print(f"macro train shape: {macro_train.shape}")
-print(f"firm train shape: {firm_train.shape}")
-print(f"macro valid shape: {macro_valid.shape}")
-print(f"firm valid shape: {firm_valid.shape}")
-print(f"macro test shape: {macro_test.shape}")
-print(f"firm test shape: {firm_test.shape}")
+test_data = {
+    "returns": test_return,
+    "macro": test_macro,
+    "firm": test_firm
+}
+
+logging.info(f"macro train shape: {train_macro.shape}")
+logging.info(f"firm train shape: {train_firm.shape}")
+logging.info(f"macro valid shape: {valid_macro.shape}")
+logging.info(f"firm valid shape: {valid_firm.shape}")
+logging.info(f"macro test shape: {test_macro.shape}")
+logging.info(f"firm test shape: {test_firm.shape}")
 
 # %%
 # remove zip files
@@ -79,129 +119,50 @@ del macro_valid_zip, firm_valid_zip
 del macro_test_zip, firm_test_zip
 
 # %%
-# Hyper-parameters (train)
-_macro_feature = macro_train.shape[1]
-_num_firms = firm_train.shape[1]
-_num_chars = firm_train.shape[2]
-macro_shape = (_macro_feature, 1, )
-firm_shape = (_num_firms, _num_chars, )
-
-print(f"macro shape: {macro_shape}")
-print(f"firm shape: {firm_shape}")
-
-macro_network = gan.create_macro_network(
-    macro_shape=macro_shape,
-    num_firms=_num_firms,
-    name="discriminant_macro",
-    LSTM_units=4
+train_networks = create_gan(
+    configpath=configpath,
+    data=train_data
 )
-
-discriminant_network = gan.create_discriminant_network(
-    firm_shape=firm_shape,
-    macro_network=macro_network,
-    returns=return_train
-)
-
-print(f"""network output shape: {discriminant_network(
-    [macro_train, firm_train]).shape}""")
-discriminant_network.summary()
-
-generative_macro = gan.create_macro_network(
-    macro_shape=macro_shape,
-    num_firms=_num_firms,
-    name="generative_macro",
-    LSTM_units=32
-)
-
-generative_network = gan.create_generative_network(
-    firm_shape=firm_shape,
-    macro_network=generative_macro
-)
-
-print(f"""network output shape: {generative_network(
-    [macro_train, firm_train]).shape}""")
-generative_network.summary()
 
 # %%
-view_pydot(model_to_dot(discriminant_network))
-view_pydot(model_to_dot(generative_network))
+view_pydot(model_to_dot(train_networks["discriminant_network"]))
+view_pydot(model_to_dot(train_networks["generative_network"]))
 
 
 # %%
-# Hyper-parameters (valid)
-_macro_feature = macro_valid.shape[1]
-_num_firms = firm_valid.shape[1]
-_num_chars = firm_valid.shape[2]
-macro_shape = (_macro_feature, 1, )
-firm_shape = (_num_firms, _num_chars, )
-
-print(f"macro shape: {macro_shape}")
-print(f"firm shape: {firm_shape}")
-
-macro_network_valid = gan.create_macro_network(
-    macro_shape=macro_shape,
-    num_firms=_num_firms,
-    name="discriminant_macro_valid",
-    LSTM_units=4
+# validation network
+valid_networks = create_gan(
+    configpath=configpath,
+    data=valid_data
 )
-
-discriminant_network_valid = gan.create_discriminant_network(
-    firm_shape=firm_shape,
-    macro_network=macro_network_valid,
-    returns=return_valid
-)
-
-print(f"""network output shape: {discriminant_network_valid(
-    [macro_valid, firm_valid]).shape}""")
-discriminant_network.summary()
 
 # %%
-# Hyper-parameters (test)
-_macro_feature = macro_test.shape[1]
-_num_firms = firm_test.shape[1]
-_num_chars = firm_test.shape[2]
-macro_shape = (_macro_feature, 1, )
-firm_shape = (_num_firms, _num_chars, )
-
-print(f"macro shape: {macro_shape}")
-print(f"firm shape: {firm_shape}")
-
-macro_network_test = gan.create_macro_network(
-    macro_shape=macro_shape,
-    num_firms=_num_firms,
-    name="discriminant_macro_test",
-    LSTM_units=4
+# test network
+test_networks = create_gan(
+    configpath=configpath,
+    data=test_data
 )
-
-discriminant_network_test = gan.create_discriminant_network(
-    firm_shape=firm_shape,
-    macro_network=macro_network_test,
-    returns=return_test
-)
-
-print(f"""network output shape: {discriminant_network_test(
-    [macro_test, firm_test]).shape}""")
-discriminant_network.summary()
 
 # %%
 weight_model = keras.Model(
-    inputs=discriminant_network.inputs,
-    outputs=discriminant_network.get_layer("sdf_w").output
+    inputs=train_networks["discriminant_network"].inputs,
+    outputs=train_networks["discriminant_network"].get_layer("sdf_w").output
 )
 
-weight_model([macro_train, firm_train])
+weight_model([train_macro, train_firm])
 
 # %%
-sdf = discriminant_network([macro_train, firm_train])
-moment = generative_network([macro_train, firm_train])
+sdf = train_networks["discriminant_network"]([train_macro, train_firm])
+moment = train_networks["generative_network"]([train_macro, train_firm])
 
-loss = gan.PricingLoss(
+loss = PricingLoss(
     sdf=sdf,
     moment=moment,
-    returns=return_train
+    returns=train_return,
+    mask_key=-99.99
 )
 
-shape_loss = gan.sharpe_loss(sdf)
+shape_loss = sharpe_loss(sdf)
 
 logging.debug(f"Initial Pricing loss: {loss}")
 logging.debug(f"Initial SHARPE loss: {shape_loss}")
@@ -209,90 +170,52 @@ logging.debug(f"Initial SHARPE loss: {shape_loss}")
 # %%
 lr_schedule = keras.optimizers.schedules.ExponentialDecay(
     initial_learning_rate=0.001,
-    decay_steps=10000,
+    decay_steps=2000,
     decay_rate=0.9
 )
-optimizer = keras.optimizers.Adam(learning_rate=0.001)
-gan.train(
-    inputs=[macro_train, firm_train],
-    returns=return_train,
+optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
+train_gan(
+    train_data=train_data,
+    train_networks=train_networks,
     optimizer=optimizer,
-    discriminant_network=discriminant_network,
-    generative_network=generative_network,
-    valid_inputs=[macro_valid, firm_valid],
-    valid_returns=return_valid,
-    valid_discriminant=discriminant_network_valid,
-    discriminant_epochs=100,
-    generative_epochs=100,
-    gan_epochs=100,
-    verbose_interval=10,
-    min_epochs=10,
-    patience=5000,
-    load_weights=[True, True, True],
-    save_weights=[False, False, False]
+    valid_data=valid_data,
+    valid_networks=valid_networks,
+    train_summary_writer=train_summary_writer,
+    valid_summary_writer=valid_summary_writer,
+    discriminant_epochs=discriminant_epochs,
+    generative_epochs=generative_epochs,
+    gan_epochs=gan_epochs,
+    min_epochs=min_epochs,
+    patience=patience,
+    mask_key=mask_key,
+    load_weights=load_weights,
+    save_weights=save_weights
 )
 
 # %%
 # Loss for train
-sdf_train = discriminant_network([macro_train, firm_train])
+sdf_train = train_networks["discriminant_network"]([train_macro, train_firm])
 
-sharpe_loss_train = gan.sharpe_loss(sdf_train)
+sharpe_loss_train = sharpe_loss(sdf_train)
 
 logging.debug(f"GAN Trained train SHARPE loss: {sharpe_loss_train}")
 
 # %%
 # Loss for valid
-sdf_valid = discriminant_network_valid([macro_valid, firm_valid])
+sdf_valid = valid_networks["discriminant_network"]([valid_macro, valid_firm])
 
-sharpe_loss_valid = gan.sharpe_loss(sdf_valid)
+sharpe_loss_valid = sharpe_loss(sdf_valid)
 
 logging.debug(f"GAN Trained valid SHARPE loss: {sharpe_loss_valid}")
 
 # %%
 # Loss for test
-discriminant_network_test.set_weights(
-    discriminant_network.get_weights()
+test_networks["discriminant_network"].set_weights(
+    train_networks["discriminant_network"].get_weights()
 )
 
-sdf_test = discriminant_network_test([macro_test, firm_test])
+sdf_test = test_networks["discriminant_network"]([test_macro, test_firm])
 
-sharpe_loss_test = gan.sharpe_loss(sdf_test)
+sharpe_loss_test = sharpe_loss(sdf_test)
 
 logging.debug(f"GAN Trained test SHARPE loss: {sharpe_loss_test}")
-
-# %%
-# compute beta
-y = firm_valid[:, 53, 0]
-mask = y != -99.99
-X = discriminant_network_valid([macro_valid, firm_valid]).numpy()
-y = y[mask]
-X = np.squeeze(X[mask])
-X = sm.add_constant(X)
-
-y.shape, X.shape
-
-# %%
-results = sm.OLS(y, X).fit()
-results.summary()
-
-# %%
-X = discriminant_network([macro_train, firm_train]).numpy()
-X = np.squeeze(X)
-X = sm.add_constant(X)
-all_results = []
-for index in range(firm_train.shape[1]):
-    y = firm_train[:, index, 0]
-    mask = y != -99.99
-    result = sm.OLS(y[mask], sm.add_constant(X[mask])).fit()
-    all_results.append(result.params)
-np.mean(list(map(lambda x: x[0], all_results)))
-
-# %%
-# check if the weights are within (0, 1)
-sdf_weights = keras.Model(
-    discriminant_network.inputs,
-    discriminant_network.get_layer("sdf_w").output
-)
-weights = sdf_weights([macro_train, firm_train]).numpy()
-
-pd.DataFrame(weights).describe()
