@@ -1,12 +1,14 @@
 {
     "training": {
-        "discriminant_epochs": 500,
-        "generative_epochs": 500,
-        "gan_epochs": 50,
-        "min_epochs": 50,
-        "patience": 50,
-        "load_weights": [false, false, false],
-        "save_weights": [true, true, true]
+        "discriminant_unc_epochs": 256,
+        "generative_unc_epochs": 64,
+        "discriminant_epochs": 256,
+        "generative_epochs": 64,
+        "gan_epochs": 512,
+        "min_epochs": 500,
+        "patience": 300,
+        "load_weight": false,
+        "save_weight": true
     },
     "hyperparameters": {
         "mask_key": -99.99,

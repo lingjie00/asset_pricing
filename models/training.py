@@ -4,7 +4,11 @@ train_discriminant: trains sdf network
 train_generative: trains generative network
 train_gan: trains GAN network
 """
+import datetime
+import json
 import logging
+import os
+from typing import Union
 
 import tensorflow as tf
 import tensorflow.keras as keras
@@ -85,8 +89,8 @@ def train_n_discriminant(
     valid_data: dict,
     mask_key: float,
     gan_training: bool,
-    save_weight: bool = False,
-    load_weight: bool = True,
+    save_weight: Union[bool, str] = False,
+    load_weight: Union[bool, str] = False,
     train_summary_writer=None,
     valid_summary_writer=None
 ):
@@ -108,6 +112,18 @@ def train_n_discriminant(
     else:
         price_loss_name = "Pricing_loss"
         sharpe_loss_name = "Sharpe_loss"
+
+    # set path
+    if isinstance(load_weight, str):
+        if gan_training:
+            load_weight += "/weights/gan_discriminant.h5"
+        else:
+            load_weight += "/weights/discriminant.h5"
+    if isinstance(save_weight, str):
+        if gan_training:
+            save_weight += "/weights/gan_discriminant.h5"
+        else:
+            save_weight += "/weights/discriminant.h5"
 
     """Train discriminant"""
     logging.info("Training discriminant network")
@@ -131,10 +147,9 @@ def train_n_discriminant(
                    valid_inputs[1].shape[1])
         )
 
-    if load_weight:
+    if load_weight is not False:
         # load discriminant weights
-        train_discriminant_network.load_weights(
-            "./saved_weights/discriminant/")
+        train_discriminant_network.load_weights(load_weight)
         logging.info("Loaded Discriminant weights")
 
     for epoch in range(discriminant_epochs+1):
@@ -202,9 +217,8 @@ def train_n_discriminant(
     # epochs and reload the best weights
     logging.info(f"Total Discriminant training epochs {epoch}")
     train_discriminant_network.set_weights(weights)
-    if save_weight:
-        train_discriminant_network.save_weights(
-            "./saved_weights/discriminant/")
+    if save_weight is not False:
+        train_discriminant_network.save_weights(save_weight)
         logging.info("Saved Discriminant weights")
 
     # update the networks
@@ -225,8 +239,8 @@ def train_n_generative(
     valid_data: dict,
     mask_key: float,
     gan_training: bool,
-    save_weight: bool = False,
-    load_weight: bool = True,
+    save_weight: Union[bool, str] = False,
+    load_weight: Union[bool, str] = False,
     train_summary_writer=None,
     valid_summary_writer=None
 ):
@@ -249,6 +263,18 @@ def train_n_generative(
     else:
         price_loss_name = "Pricing_loss_generative"
 
+    # set path
+    if isinstance(load_weight, str):
+        if gan_training:
+            load_weight += "/weights/gan_generative.h5"
+        else:
+            load_weight += "/weights/generative.h5"
+    if isinstance(save_weight, str):
+        if gan_training:
+            save_weight += "/weights/gan_generative.h5"
+        else:
+            save_weight += "/weights/generative.h5"
+
     """Train generative"""
     logging.info("Training generative network")
     best_epoch = 0
@@ -259,9 +285,8 @@ def train_n_generative(
     train_sdf = train_discriminant_network(train_inputs, training=False)
     valid_sdf = valid_discriminant_network(valid_inputs, training=False)
 
-    if load_weight:
-        train_generative_network.load_weights(
-            "./saved_weights/generative/")
+    if load_weight is not False:
+        train_generative_network.load_weights(load_weight)
         logging.info("Loaded Generative weights")
 
     for epoch in range(generative_epochs+1):
@@ -316,9 +341,8 @@ def train_n_generative(
     # epochs and reload the best weights
     logging.info(f"Total Generative training epochs {epoch}")
     train_generative_network.set_weights(gweights)
-    if save_weight:
-        train_generative_network.save_weights(
-            "./saved_weights/generative/")
+    if save_weight is not False:
+        train_generative_network.save_weights(save_weight)
         logging.info("Saved Generative weights")
 
     # update the networks
@@ -331,35 +355,76 @@ def train_n_generative(
 
 
 def train_gan(
+    configpath: str,
     train_data: dict,
     train_networks: dict,
-    optimizer: keras.optimizers,
-    discriminant_epochs: int,
-    generative_epochs: int,
-    gan_epochs: int,
-    patience: int,
-    min_epochs: int,
     valid_networks: dict,
     valid_data: dict,
-    mask_key: float,
-    save_weights: list[bool, bool, bool] = [False, False, False],
-    load_weights: list[bool, bool, bool] = [False, False, False],
-    train_summary_writer=None,
-    valid_summary_writer=None
+    use_cpu: bool = False
 ):
+    """Test GPU availability"""
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        logging.info(f"Found GPU with info: {gpus}")
+    elif use_cpu is False:
+        logging.info("No GPU found")
+        raise Exception("No GPU")
+    else:
+        logging.info("No GPU found, using CPU")
+
+    """Create TensorFlow summary writer"""
+    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    dir = 'logs/gradient_tape/' + current_time
+    train_log_dir = dir + '/train'
+    valid_log_dir = dir + '/valid'
+    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+    valid_summary_writer = tf.summary.create_file_writer(valid_log_dir)
+
+    """Load config"""
+    with open(configpath, "r") as file:
+        # load config
+        config = json.load(file)
+        # export config to the log
+        with open(dir + "/config.json", "w") as writer:
+            json.dump(config, writer)
+        logging.info(f"config: {config}")
+        config_training = config["training"]
+        mask_key = config["hyperparameters"]["mask_key"]
+        discriminant_unc_epochs = config_training["discriminant_unc_epochs"]
+        generative_unc_epochs = config_training["generative_unc_epochs"]
+        discriminant_epochs = config_training["discriminant_epochs"]
+        generative_epochs = config_training["generative_epochs"]
+        gan_epochs = config_training["gan_epochs"]
+        min_epochs = config_training["min_epochs"]
+        patience = config_training["patience"]
+        load_weight = config_training["load_weight"]
+        if config_training["save_weight"] is True:
+            save_weight = dir
+            os.mkdir(f"{dir}/weights")
+        else:
+            save_weight = False
+
+    """Create optimizer"""
+    lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=0.001,
+        decay_steps=1000,
+        decay_rate=0.9
+    )
+    optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
+
     """Train discriminant"""
     train_networks, valid_networks = train_n_discriminant(
         train_data=train_data,
         train_networks=train_networks,
         optimizer=optimizer,
-        discriminant_epochs=discriminant_epochs,
+        discriminant_epochs=discriminant_unc_epochs,
         patience=patience,
         min_epochs=min_epochs,
         valid_networks=valid_networks,
         valid_data=valid_data,
         mask_key=mask_key,
-        save_weight=save_weights[0],
-        load_weight=load_weights[0],
+        save_weight=save_weight,
+        load_weight=load_weight,
         gan_training=False,
         train_summary_writer=train_summary_writer,
         valid_summary_writer=valid_summary_writer
@@ -370,14 +435,14 @@ def train_gan(
         train_data=train_data,
         train_networks=train_networks,
         optimizer=optimizer,
-        generative_epochs=generative_epochs,
+        generative_epochs=generative_unc_epochs,
         patience=patience,
         min_epochs=min_epochs,
         valid_networks=valid_networks,
         valid_data=valid_data,
         mask_key=mask_key,
-        save_weight=save_weights[1],
-        load_weight=load_weights[1],
+        save_weight=save_weight,
+        load_weight=load_weight,
         gan_training=False,
         train_summary_writer=train_summary_writer,
         valid_summary_writer=valid_summary_writer
@@ -400,8 +465,8 @@ def train_gan(
                 valid_networks=valid_networks,
                 valid_data=valid_data,
                 mask_key=mask_key,
-                save_weight=save_weights[2],
-                load_weight=load_weights[2],
+                save_weight=save_weight,
+                load_weight=load_weight,
                 gan_training=True,
                 train_summary_writer=train_summary_writer,
                 valid_summary_writer=valid_summary_writer
@@ -416,8 +481,8 @@ def train_gan(
                 valid_networks=valid_networks,
                 valid_data=valid_data,
                 mask_key=mask_key,
-                save_weight=save_weights[2],
-                load_weight=load_weights[2],
+                save_weight=save_weight,
+                load_weight=load_weight,
                 gan_training=True,
                 train_summary_writer=train_summary_writer,
                 valid_summary_writer=valid_summary_writer

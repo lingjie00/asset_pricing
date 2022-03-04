@@ -98,10 +98,6 @@ def create_discriminant_network(
         name="dense2",
         activation="relu"
     )(dense1)
-    dense2 = layers.Dropout(
-        rate=dropout_rate,
-        name="dropout2"
-    )(dense2)
     sdf_w = layers.Dense(
         1,
         name="sdf_w",
