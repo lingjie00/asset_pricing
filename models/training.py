@@ -382,10 +382,16 @@ def train_gan(
 
     """Load config"""
     with open(configpath, "r") as file:
+        # load config
         config = json.load(file)
+        # export config to the log
+        with open(dir + "/config.json", "w") as writer:
+            json.dump(config, writer)
         logging.info(f"config: {config}")
         config_training = config["training"]
         mask_key = config["hyperparameters"]["mask_key"]
+        discriminant_unc_epochs = config_training["discriminant_unc_epochs"]
+        generative_unc_epochs = config_training["generative_unc_epochs"]
         discriminant_epochs = config_training["discriminant_epochs"]
         generative_epochs = config_training["generative_epochs"]
         gan_epochs = config_training["gan_epochs"]
@@ -411,7 +417,7 @@ def train_gan(
         train_data=train_data,
         train_networks=train_networks,
         optimizer=optimizer,
-        discriminant_epochs=discriminant_epochs,
+        discriminant_epochs=discriminant_unc_epochs,
         patience=patience,
         min_epochs=min_epochs,
         valid_networks=valid_networks,
@@ -429,7 +435,7 @@ def train_gan(
         train_data=train_data,
         train_networks=train_networks,
         optimizer=optimizer,
-        generative_epochs=generative_epochs,
+        generative_epochs=generative_unc_epochs,
         patience=patience,
         min_epochs=min_epochs,
         valid_networks=valid_networks,

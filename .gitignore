@@ -6,3 +6,4 @@ saved_weights/
 .ipynb_checkpoints/*
 logs/
 *.log
+*.DS_Store
