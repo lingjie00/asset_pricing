@@ -3,7 +3,10 @@ weights_*/*
 past_weights/*
 saved_weights/
 */__pycache__/*
-.ipynb_checkpoints/*
+*/.ipynb_checkpoints/*
+/.ipynb_checkpoints/*
 logs/
 *.log
 *.DS_Store
+data/*
+*.csv

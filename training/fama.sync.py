@@ -3,21 +3,22 @@
 import pandas as pd
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
-import seaborn as sns
 
 missing_index = -99.99
 col_name = "adj_close_excess"
 
 # %%
 """Load price data"""
-price = pd.read_csv("../data/yprice_1mo.csv")\
-    .set_index(["symbol", "date"])
+price = pd.read_csv("../data/yprice_1mo.csv")
+price["date"] = pd.to_datetime(price["date"])
+price = price.set_index(["symbol", "date"])
 price.head()
 
 # %%
 """Load factors"""
-factors = pd.read_csv("../data/factors.csv")\
-    .set_index("date")
+factors = pd.read_csv("../data/factors.csv")
+factors["date"] = pd.to_datetime(factors["date"])
+factors = factors.set_index("date")
 factors.head()
 
 # %%
@@ -42,7 +43,7 @@ res = mod.fit()
 res.summary()
 
 # %%
-"""Sklearn"""
+"""Sklearn Linear Regression"""
 coef = {}
 
 for symbol in data.index.get_level_values("symbol").unique():
@@ -53,7 +54,17 @@ for symbol in data.index.get_level_values("symbol").unique():
         train.loc[:, col_name]
     )
 
-    coef[symbol] = lr.intercept_
+    coef[symbol] = dict(zip(lr.feature_names_in_, lr.coef_))
+    coef[symbol]["intercept"] = lr.intercept_
 
 # %%
-pd.DataFrame(coef)
+coef = pd.DataFrame(coef).T
+
+coef
+
+# %%
+coef["intercept"].abs().describe()
+
+# %%
+# export results
+coef.to_csv("../data/fama_results.csv")
