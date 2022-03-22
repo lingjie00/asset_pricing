@@ -1,70 +1,69 @@
 # %%
 """Library"""
+import matplotlib.pyplot as plt
 import pandas as pd
-import statsmodels.api as sm
-from sklearn.linear_model import LinearRegression
+from common import (alpha_beta, data_path, date_col, fama_sharpe, missing_code,
+                    price_col, processed_path, projectpath, symbol_col,
+                    train_index, valid_index)
 
-missing_index = -99.99
-col_name = "adj_close_excess"
-
-# %%
-"""Load price data"""
-price = pd.read_csv("../data/yprice_1mo.csv")
-price["date"] = pd.to_datetime(price["date"])
-price = price.set_index(["symbol", "date"])
-price.head()
-
-# %%
-"""Load factors"""
-factors = pd.read_csv("../data/factors.csv")
-factors["date"] = pd.to_datetime(factors["date"])
-factors = factors.set_index("date")
-factors.head()
-
-# %%
-"""Join the two data"""
-data = price.combine_first(factors)\
-    .replace(-99.99, None)\
-    .dropna(axis=0)\
+# load data
+select = "factor"
+data = pd.read_csv(data_path[select])
+data[date_col] = pd.to_datetime(data[date_col])
+data = data.set_index([symbol_col, date_col])\
+    .replace(missing_code, float("NaN"))\
     .astype("float")
 
-data.head()
+# keep only fama french factors
+factor_cols = ["hml", "rmrf", "smb", "umd"]
+data = data[[price_col] + factor_cols]
+
+data.dropna().head()
 
 # %%
-"""One asset"""
-mod = sm.OLS(data.loc["3IN", col_name],
-             data.loc["3IN"].drop(columns=[col_name]).assign(const=1),
-             missing=missing_index,
-             hasconst=True
-             )
-
-res = mod.fit()
-
-res.summary()
-
-# %%
-"""Sklearn Linear Regression"""
-coef = {}
-
-for symbol in data.index.get_level_values("symbol").unique():
-    train = data.loc[symbol]
-    lr = LinearRegression()\
-        .fit(
-        train.drop(columns=[col_name]),
-        train.loc[:, col_name]
-    )
-
-    coef[symbol] = dict(zip(lr.feature_names_in_, lr.coef_))
-    coef[symbol]["intercept"] = lr.intercept_
-
-# %%
-coef = pd.DataFrame(coef).T
+"""Alpha Beta"""
+coef = alpha_beta(data)
 
 coef
 
 # %%
-coef["intercept"].abs().describe()
+coef["train_intercept"].abs().describe()
+
+# %%
+coef["valid_intercept"].abs().describe()
+
+# %%
+coef["test_intercept"].abs().describe()
+
+# %%
+coef.drop(columns=factor_cols).boxplot()
+
+# %%
+coef["train_intercept"].plot.kde(alpha=0.7)
+coef["valid_intercept"].plot.kde(alpha=0.7)
+coef["test_intercept"].plot.kde(alpha=0.7)
+plt.legend()
+
+# %%
+# import facotr data
+factor_data = pd.read_csv(processed_path["factor"])
+factor_data[date_col] = pd.to_datetime(factor_data[date_col])
+factor_data = factor_data.set_index(date_col)\
+        .reindex(data.index.get_level_values(date_col).unique())\
+        .sort_values(date_col)
+factor_data.head()
+
+# %%
+# sharpe ratio
+train_data = factor_data.iloc[:train_index, :]
+valid_data = factor_data.iloc[train_index:valid_index, :]
+test_data = factor_data.iloc[valid_index:, :]
+train_sharpe = fama_sharpe(train_data)
+valid_sharpe = fama_sharpe(valid_data)
+test_sharpe = fama_sharpe(test_data)
+
+train_sharpe, valid_sharpe, test_sharpe
 
 # %%
 # export results
-coef.to_csv("../data/fama_results.csv")
+coef.to_csv(f"{projectpath}/data/alpha/fama_{select}.csv")

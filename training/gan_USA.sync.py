@@ -1,21 +1,21 @@
 # %%
-"""# Library and configurations"""
+"""GAN USA refers to the GAN training using Chen's US dataset"""
+# Library and configurations
 import logging
 
 import numpy as np
+import statsmodels.api as sm
 import tensorflow as tf
 import tensorflow.keras as keras
 from IPython.display import Image, display
 from tensorflow.keras.utils import model_to_dot
 
-from models.gan import create_gan
-from models.loss import PricingLoss, sharpe_loss
-from models.training import train_gan
+from ap import PricingLoss, create_gan, sharpe_loss, train_gan
 
 # logging
 logging.basicConfig(
     format='%(asctime)s %(message)s',
-    filename="logs/training.log", level=logging.DEBUG)
+    filename="logs/training_USA.log", level=logging.DEBUG)
 
 # set seed for TensorFlow
 tf.random.set_seed(20220102)
@@ -30,8 +30,8 @@ def view_pydot(pdot):
 # %%
 """Load Chen's data"""
 # load data
-path = "../datasets"
-configpath = "config.json"
+path = "../../datasets"
+configpath = "../config.json"
 
 # training data
 macro_train_zip = np.load(f"{path}/macro/macro_train.npz")
@@ -153,3 +153,31 @@ test_networks["discriminant_network"].set_weights(
 sdf_test = test_networks["discriminant_network"]([test_macro, test_firm])
 sharpe_loss_test = sharpe_loss(sdf_test)
 logging.info(f"GAN Trained test SHARPE loss: {sharpe_loss_test}")
+
+# %%
+# getting tangency portfolios
+train_port = 1 - sdf_train.numpy()
+valid_port = 1 - sdf_valid.numpy()
+test_port = 1 - sdf_test.numpy()
+
+# %%
+# train
+# one asset risk loading
+subset = train_data["returns"][:, 0]
+subset_index = subset != -99.99
+mod = sm.OLS(subset[subset_index],
+             sm.add_constant(train_port[subset_index],
+                             prepend=False))
+res = mod.fit()
+res.summary()
+
+# %%
+# test
+# one asset risk loading
+subset = test_data["returns"][:, 0]
+subset_index = subset != -99.99
+mod = sm.OLS(subset[subset_index],
+             sm.add_constant(test_port[subset_index],
+                             prepend=False))
+res = mod.fit()
+res.summary()

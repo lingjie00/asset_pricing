@@ -1,19 +1,28 @@
 # %%
-"""Library"""
+"""Process Fama French factor data"""
+# library
 import pandas as pd
-
-factor_filepath = "~/db/asset_pricing/uk_monthlyfactors/monthlyfactors.csv"
+from common import raw_path, processed_path, date_col
 
 # %%
-"""Load factor data"""
-raw = pd.read_csv(factor_filepath)
-
-rename_cols = {"month": "date"}
+# import data
+raw = pd.read_csv(raw_path["factor"])
+# process data
+rename_cols = {"month": date_col}
 raw["month"] = pd.to_datetime(raw["month"], format="%Ym%m")\
-        .dt.to_period("M").dt.to_timestamp("M")
+    .dt.to_period("M").dt.to_timestamp("M")
 raw = raw.rename(columns=rename_cols)
 
 raw.head()
 
 # %%
-raw.to_csv("../data/factors.csv", index=False)
+# keep only the factors
+factor_names = [date_col, "smb", "hml", "umd", "rmrf"]
+factors = raw[factor_names]
+
+factors.info()
+factors.head()
+
+# %%
+# export data
+factors.to_csv(processed_path["factor"], index=False)

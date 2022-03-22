@@ -1,10 +1,10 @@
 {
     "training": {
-        "discriminant_unc_epochs": 3000,
-        "generative_unc_epochs": 0,
+        "discriminant_unc_epochs": 256,
+        "generative_unc_epochs": 64,
         "discriminant_epochs": 256,
         "generative_epochs": 64,
-        "gan_epochs": 0,
+        "gan_epochs": 30,
         "min_epochs": 500,
         "patience": 300,
         "load_weight": false,
