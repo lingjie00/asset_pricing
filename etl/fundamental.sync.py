@@ -1,84 +1,78 @@
 # %%
-"""Data transformation for UK LSE data.
-
-This script transforms the following data
-1. Fundamental data
-
-It is designed to be not following functional form or
-objective orientated form to experiment different data
-manipulations in notebooks easily.
-
-All final data will be stored in a dictionary called `final`
-"""
+"""Process fundamental data"""
 # library
 import numpy as np
 import pandas as pd
+from common import date_col, processed_path, raw_path, symbol_col
+
 pd.set_option('display.max_rows', 1000)
 pd.set_option('display.max_columns', 1000)
 
-# file path
-fundamental_path = "~/db/asset_pricing/Finage_LSE_data/fundamental_quarter.csv"
-
-# date range
-min_date = "2009-01-01"
-max_date = "2022-01-01"
-
 # %%
-"""Fundamental data"""
-# path
-raw = pd.read_csv(fundamental_path)
+# import data
+raw = pd.read_csv(raw_path["fundamental"])
 raw["acceptedDate"] = pd.to_datetime(raw["acceptedDate"])
-raw["symbol"] = raw["symbol"].str.replace(".L", "", regex=False)
+raw[symbol_col] = raw[symbol_col].str.replace(".L", "", regex=False)
 
-raw[raw["symbol"] == "3IN"]
+raw[raw[symbol_col] == "ABC"]
 
 # %%
+"""Preprocessing
 
-missing_code = "-99.99"
-drop_labels = [
-    "date", "fillingDate", "period", "link", "finalLink"
-]
-rename_cols = {"acceptedDate": "date"}
-time_index = pd.date_range(
-    start=min_date,
-    end=max_date,
-    freq="M"
-)
-symbols = raw["symbol"].unique()
-index = pd.MultiIndex.from_product(
-    [symbols, time_index], names=["symbol", "date"]
-)
+1. Drop unused columns
+2. Standardised column naming
+3. Replace values coded as 0
+"""
+drop_labels = ["date", "fillingDate", "period", "link", "finalLink"]
+rename_cols = {"acceptedDate": date_col}
 replace_int = [0, float("inf")]
 
-# transform quarter data to monthly data
 data = raw.drop(labels=drop_labels, axis=1)\
     .rename(mapper=rename_cols, axis=1)\
-    .set_index(["symbol", "date"])\
-    .sort_values(by=["symbol", "date"])
+    .set_index([symbol_col, date_col])\
+    .replace(replace_int, float("NaN"))\
+    .sort_values(by=[symbol_col, date_col])
 
-data.loc["3IN"]
+data.loc["ABC"]
 
 # %%
-# transform data
-# replace missing data with median
+# we note that fundamental data does not have balanced panel
+# we drop those cols with 50th quantile > threshold %
+threshold_percent = 0.1
+stat = data.isna()\
+    .groupby(symbol_col).mean()\
+    .describe().T.sort_values(by="50%")
+drop_col = stat[stat["50%"] > 0.1].index.values
+print(drop_col)
+stat
+
+# %%
+"""Transform data
+1. Compute log differences
+2. Resample quarterly data to monthly data
+"""
+# compute log and replace missing values
 data = data\
-    .replace(replace_int, np.nan)\
-    .groupby("date")\
+    .drop(columns=drop_col)\
+    .groupby(date_col)\
     .apply(lambda x: np.log(x) - np.log(x.shift(1)))\
-    .groupby("date")\
-    .apply(lambda x: x.fillna(x.median()))\
+    .dropna()
 
-data.loc["3IN"]
+data.loc["ABC"]
 
 # %%
+# resample
 data = data\
     .reset_index()\
-    .set_index("date")\
-    .groupby("symbol")\
+    .set_index(date_col)\
+    .groupby(symbol_col)\
     .resample("1M")\
     .ffill()\
-    .drop(labels=["symbol"], axis=1)\
-    .reindex(index)\
+    .drop(labels=[symbol_col], axis=1)\
     .astype("float")
 
-data.loc["3IN"]
+data.loc["ABC"]
+
+# %%
+# export
+data.to_csv(processed_path["fundamental"])

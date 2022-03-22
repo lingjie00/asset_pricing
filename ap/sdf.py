@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import layers
 
-from .data import masking
+from data import masking
 
 
 def compute_sdf(
@@ -66,29 +66,43 @@ def create_discriminant_network(
         name: name of the model
         dense_units: num of hidden units in dense layer
     """
-    macro_input = macro_network.get_layer(
-        name="macro_input"
-    ).input
-    macro_output = macro_network.get_layer(
-        name="macro_output").output
-    firm_input = layers.Input(
-        firm_shape,
-        name="firm_input"
-    )
-    combined_input = layers.Concatenate(
-        axis=2,
-        name="combined_input")([
-            firm_input, macro_output
-        ])
-    combined_input = layers.Lambda(
-        lambda x: masking(x, returns, mask_key),
-        name="masked_input"
-    )(combined_input)
+    # create input layers
+    if macro_network is not None:
+        macro_input = macro_network.get_layer(
+            name="macro_input"
+        ).input
+        macro_output = macro_network.get_layer(
+            name="macro_output").output
+        firm_input = layers.Input(
+            firm_shape,
+            name="firm_input"
+        )
+        combined_input = layers.Concatenate(
+            axis=2,
+            name="combined_input")([
+                firm_input, macro_output
+            ])
+        inputs = layers.Lambda(
+            lambda x: masking(x, returns, mask_key),
+            name="masked_input"
+        )(combined_input)
+    else:
+        # if no macro network
+        firm_input = layers.Input(
+            firm_shape,
+            name="firm_input"
+        )
+        inputs = layers.Lambda(
+            lambda x: masking(x, returns, mask_key),
+            name="masked_input"
+        )(firm_input)
+
+    # create model
     dense1 = layers.Dense(
         dense_units,
         name="dense1",
         activation="relu"
-    )(combined_input)
+    )(inputs)
     dense1 = layers.Dropout(
         rate=dropout_rate,
         name="dropout1"
@@ -107,10 +121,21 @@ def create_discriminant_network(
         lambda w: compute_sdf(w, returns, mask_key),
         name="sdf"
     )(sdf_w)
-    network = keras.Model(
-        inputs=[macro_input, firm_input],
-        outputs=sdf,
-        name=name
-    )
+
+    # create output
+    if macro_network is not None:
+        # if have marco network
+        network = keras.Model(
+            inputs=[macro_input, firm_input],
+            outputs=sdf,
+            name=name
+        )
+    else:
+        # if no macro network
+        network = keras.Model(
+            inputs=firm_input,
+            outputs=sdf,
+            name=name
+        )
 
     return network

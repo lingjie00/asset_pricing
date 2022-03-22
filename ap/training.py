@@ -13,7 +13,7 @@ from typing import Union
 import tensorflow as tf
 import tensorflow.keras as keras
 
-from models.loss import PricingLoss, sharpe_loss
+from loss import PricingLoss, sharpe_loss
 
 
 def train_discriminant(
@@ -54,8 +54,6 @@ def train_generative(
         mask_key: float
 ):
     """Trains generative network."""
-    macro_data, firm_data = inputs
-
     with tf.GradientTape() as tape:
         moment = generative_network(
             inputs,
@@ -100,9 +98,14 @@ def train_n_discriminant(
     valid_discriminant_network = valid_networks["discriminant_network"]
 
     # retrieve data
-    train_inputs = [train_data["macro"], train_data["firm"]]
+    if "macro" in train_data:
+        # if macro data is available
+        train_inputs = [train_data["macro"], train_data["firm"]]
+        valid_inputs = [valid_data["macro"], valid_data["firm"]]
+    else:
+        train_inputs = train_data["firm"]
+        valid_inputs = valid_data["firm"]
     train_returns = train_data["returns"]
-    valid_inputs = [valid_data["macro"], valid_data["firm"]]
     valid_returns = valid_data["returns"]
 
     # set names
@@ -136,15 +139,17 @@ def train_n_discriminant(
         valid_moment = valid_networks["generative_network"](
             valid_inputs, training=False)
     else:
+        train_shape = train_data["firm"].shape
+        valid_shape = valid_data["firm"].shape
         train_moment = tf.ones(
             shape=(1,
-                   train_inputs[1].shape[0],
-                   train_inputs[1].shape[1])
+                   train_shape[0],
+                   train_shape[1])
         )
         valid_moment = tf.ones(
             shape=(1,
-                   valid_inputs[1].shape[0],
-                   valid_inputs[1].shape[1])
+                   valid_shape[0],
+                   valid_shape[1])
         )
 
     if load_weight is not False:
@@ -252,9 +257,14 @@ def train_n_generative(
     valid_generative_network = valid_networks["generative_network"]
 
     # retrieve data
-    train_inputs = [train_data["macro"], train_data["firm"]]
+    if "macro" in train_data:
+        # if macro data is available
+        train_inputs = [train_data["macro"], train_data["firm"]]
+        valid_inputs = [valid_data["macro"], valid_data["firm"]]
+    else:
+        train_inputs = train_data["firm"]
+        valid_inputs = valid_data["firm"]
     train_returns = train_data["returns"]
-    valid_inputs = [valid_data["macro"], valid_data["firm"]]
     valid_returns = valid_data["returns"]
 
     # set names
@@ -449,7 +459,10 @@ def train_gan(
     )
 
     """Train GAN"""
-    valid_inputs = [valid_data["macro"], valid_data["firm"]]
+    if "macro" in valid_data:
+        valid_inputs = [valid_data["macro"], valid_data["firm"]]
+    else:
+        valid_inputs = [valid_data["firm"]]
     best_gan_sharpe = 0
     wait = 0
     for _ in range(gan_epochs):

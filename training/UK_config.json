@@ -1,0 +1,19 @@
+{
+    "training": {
+        "discriminant_unc_epochs": 256,
+        "generative_unc_epochs": 64,
+        "discriminant_epochs": 256,
+        "generative_epochs": 64,
+        "gan_epochs": 50,
+        "min_epochs": 500,
+        "patience": 300,
+        "load_weight": false,
+        "save_weight": true
+    },
+    "hyperparameters": {
+        "mask_key": -99.99,
+        "dropout": 0.05,
+        "sdf_dense": 64,
+        "factors": 8
+    }
+}

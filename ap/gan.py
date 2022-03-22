@@ -2,10 +2,10 @@
 import json
 import logging
 
-from .conditional import create_generative_network
-from .data import compute_firm_shape, compute_macro_shape
-from .macro import create_macro_network
-from .sdf import create_discriminant_network
+from conditional import create_generative_network
+from data import compute_firm_shape, compute_macro_shape
+from macro import create_macro_network
+from sdf import create_discriminant_network
 
 
 def create_gan(
@@ -26,11 +26,14 @@ def create_gan(
     # Get data #
     ############
     returns = data["returns"]
-    macro = data["macro"]
     firm = data["firm"]
 
-    logging.info(f"macro shape: {compute_macro_shape(macro)}")
     logging.info(f"firm shape: {compute_firm_shape(firm)}")
+
+    if "macro" in data:
+        # if macro data is available
+        macro = data["macro"]
+        logging.info(f"macro shape: {compute_macro_shape(macro)}")
 
     #########################
     # Model hyper-parameter #
@@ -49,13 +52,17 @@ def create_gan(
     ##############
     # train: SDF #
     ##############
-    discriminant_macro = create_macro_network(
-        macro_shape=compute_macro_shape(macro),
-        num_firms=compute_firm_shape(firm)[0],
-        name="discriminant_macro",
-        LSTM_units=4,
-        dropout_rate=_dropout_rate
-    )
+    if "macro" in data:
+        # if macro data is available
+        discriminant_macro = create_macro_network(
+            macro_shape=compute_macro_shape(macro),
+            num_firms=compute_firm_shape(firm)[0],
+            name="discriminant_macro",
+            LSTM_units=4,
+            dropout_rate=_dropout_rate
+        )
+    else:
+        discriminant_macro = None
 
     discriminant_network = create_discriminant_network(
         firm_shape=compute_firm_shape(firm),
@@ -66,20 +73,29 @@ def create_gan(
         mask_key=_mask_key
     )
 
-    logging.info(f"""sdf network output shape:
-            {discriminant_network( [macro, firm]).shape}""")
+    if "macro" in data:
+        logging.info(f"""sdf network output shape:
+                {discriminant_network( [macro, firm]).shape}""")
+    else:
+        logging.info(f"""sdf network output shape:
+                {discriminant_network(firm).shape}""")
     logging.info(f"Discriminant network: {discriminant_network.summary()}")
 
     #############################
     # Train: Generative network #
     #############################
-    generative_macro = create_macro_network(
-        macro_shape=compute_macro_shape(macro),
-        num_firms=compute_firm_shape(firm)[0],
-        name="generative_macro",
-        LSTM_units=32,
-        dropout_rate=_dropout_rate
-    )
+    if "macro" in data:
+        # if macro data available
+        generative_macro = create_macro_network(
+            macro_shape=compute_macro_shape(macro),
+            num_firms=compute_firm_shape(firm)[0],
+            name="generative_macro",
+            LSTM_units=32,
+            dropout_rate=_dropout_rate
+        )
+    else:
+        # if no macro data
+        generative_macro = None
 
     generative_network = create_generative_network(
         firm_shape=compute_firm_shape(firm),
@@ -88,8 +104,12 @@ def create_gan(
         dropout_rate=_dropout_rate
     )
 
-    logging.info(f"""generative network output shape:
-            {generative_network( [macro, firm]).shape}""")
+    if "macro" in data:
+        logging.info(f"""generative network output shape:
+                {generative_network( [macro, firm]).shape}""")
+    else:
+        logging.info(f"""generative network output shape:
+                {generative_network(firm).shape}""")
     logging.info(f"Generative network: {generative_network.summary()}")
 
     return {
