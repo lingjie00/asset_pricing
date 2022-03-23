@@ -7,8 +7,11 @@ from common import (data_path, date_col, missing_code, price_col, projectpath,
                     symbol_col, train_percent, valid_percent)
 from sklearn.linear_model import LinearRegression
 
-# load data
+# %%
 select = "factor"
+with_macro = False
+
+"""Load data"""
 data = pd.read_csv(data_path[select])
 data[date_col] = pd.to_datetime(data[date_col])
 data = data.set_index([symbol_col, date_col])\
@@ -16,14 +19,25 @@ data = data.set_index([symbol_col, date_col])\
     .dropna(axis=0)\
     .astype("float")
 
-# keep only fama french factors
-data = data[[price_col, "hml", "rf", "rm", "rmrf", "smb", "umd"]]
+data.head()
+
+# %%
+sdf = pd.read_csv(
+    f"{projectpath}/data/results/sdf_uk_{select}_macro_{with_macro}.csv"
+)
+sdf["date"] = pd.to_datetime(sdf["date"])
+sdf = sdf.set_index("date")
+
+sdf.head()
+
+# %%
+data = data.combine_first(sdf)
 
 data.head()
 
 # %%
 """One asset"""
-subset_data = data.loc["ABC"]
+subset_data = data.loc["ABC", [price_col, "sdf"]]
 train_index = round(subset_data.shape[0] * train_percent)
 valid_index = round(subset_data.shape[0] * valid_percent)
 train_data = subset_data.iloc[:train_index, :]
@@ -43,7 +57,7 @@ res.summary()
 coef = {}
 
 for symbol in data.index.get_level_values("symbol").unique():
-    subset_data = data.loc[symbol]
+    subset_data = data.loc[symbol, [price_col, "sdf"]]
 
     train_index = round(subset_data.shape[0] * train_percent)
     valid_index = round(subset_data.shape[0] * valid_percent)
@@ -94,4 +108,4 @@ plt.legend()
 
 # %%
 # export results
-coef.to_csv(f"{projectpath}/data/alpha/fama_{select}.csv")
+coef.to_csv(f"{projectpath}/data/alpha/gan_{select}_macro_{with_macro}.csv")
