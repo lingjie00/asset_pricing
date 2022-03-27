@@ -2,10 +2,16 @@
 """Library"""
 import matplotlib.pyplot as plt
 import pandas as pd
+<<<<<<< HEAD
 import statsmodels.api as sm
 from common import (data_path, date_col, missing_code, price_col, projectpath,
                     symbol_col, train_percent, valid_percent)
 from sklearn.linear_model import LinearRegression
+=======
+from common import (alpha_beta, data_path, date_col, fama_sharpe, missing_code,
+                    price_col, processed_path, projectpath, symbol_col,
+                    train_index, valid_index)
+>>>>>>> origin/uk_gan
 
 # load data
 select = "factor"
@@ -13,67 +19,17 @@ data = pd.read_csv(data_path[select])
 data[date_col] = pd.to_datetime(data[date_col])
 data = data.set_index([symbol_col, date_col])\
     .replace(missing_code, float("NaN"))\
-    .dropna(axis=0)\
     .astype("float")
 
 # keep only fama french factors
-data = data[[price_col, "hml", "rf", "rm", "rmrf", "smb", "umd"]]
+factor_cols = ["hml", "rmrf", "smb", "umd"]
+data = data[[price_col] + factor_cols]
 
-data.head()
-
-# %%
-"""One asset"""
-subset_data = data.loc["ABC"]
-train_index = round(subset_data.shape[0] * train_percent)
-valid_index = round(subset_data.shape[0] * valid_percent)
-train_data = subset_data.iloc[:train_index, :]
-valid_data = subset_data.iloc[train_index:valid_index, :]
-test_data = subset_data.iloc[valid_index:, :]
-mod = sm.OLS(train_data.loc[:, price_col],
-             train_data.drop(columns=[price_col]).assign(const=1),
-             missing=missing_code,
-             hasconst=True)
-
-res = mod.fit()
-
-res.summary()
+data.dropna().head()
 
 # %%
-"""Sklearn Linear Regression"""
-coef = {}
-
-for symbol in data.index.get_level_values("symbol").unique():
-    subset_data = data.loc[symbol]
-
-    train_index = round(subset_data.shape[0] * train_percent)
-    valid_index = round(subset_data.shape[0] * valid_percent)
-    train_data = subset_data.iloc[:train_index, :]
-    valid_data = subset_data.iloc[train_index:valid_index, :]
-    test_data = subset_data.iloc[valid_index:, :]
-
-    train_X = train_data.drop(columns=[price_col])
-    train_y = train_data.loc[:, price_col]
-    valid_X = valid_data.drop(columns=[price_col])
-    valid_y = valid_data.loc[:, price_col]
-    test_X = test_data.drop(columns=[price_col])
-    test_y = test_data.loc[:, price_col]
-
-    lr = LinearRegression()\
-        .fit(train_X, train_y)
-
-    valid_pred = lr.predict(valid_X)
-    valid_intercept = (valid_y - valid_pred).mean()
-
-    test_pred = lr.predict(test_X)
-    test_intercept = (test_y - test_pred).mean()
-
-    coef[symbol] = dict(zip(lr.feature_names_in_, lr.coef_))
-    coef[symbol]["train_intercept"] = lr.intercept_
-    coef[symbol]["valid_intercept"] = valid_intercept
-    coef[symbol]["test_intercept"] = test_intercept
-
-# %%
-coef = pd.DataFrame(coef).T
+"""Alpha Beta"""
+coef = alpha_beta(data)
 
 coef
 
@@ -87,10 +43,33 @@ coef["valid_intercept"].abs().describe()
 coef["test_intercept"].abs().describe()
 
 # %%
-coef["train_intercept"].plot.hist(density=True, alpha=0.7)
-coef["valid_intercept"].plot.hist(density=True, alpha=0.7)
-coef["test_intercept"].plot.hist(density=True, alpha=0.7)
+coef.drop(columns=factor_cols).boxplot()
+
+# %%
+coef["train_intercept"].plot.kde(alpha=0.7)
+coef["valid_intercept"].plot.kde(alpha=0.7)
+coef["test_intercept"].plot.kde(alpha=0.7)
 plt.legend()
+
+# %%
+# import facotr data
+factor_data = pd.read_csv(processed_path["factor"])
+factor_data[date_col] = pd.to_datetime(factor_data[date_col])
+factor_data = factor_data.set_index(date_col)\
+        .reindex(data.index.get_level_values(date_col).unique())\
+        .sort_values(date_col)
+factor_data.head()
+
+# %%
+# sharpe ratio
+train_data = factor_data.iloc[:train_index, :]
+valid_data = factor_data.iloc[train_index:valid_index, :]
+test_data = factor_data.iloc[valid_index:, :]
+train_sharpe = fama_sharpe(train_data)
+valid_sharpe = fama_sharpe(valid_data)
+test_sharpe = fama_sharpe(test_data)
+
+train_sharpe, valid_sharpe, test_sharpe
 
 # %%
 # export results

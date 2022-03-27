@@ -16,5 +16,13 @@ raw = raw.rename(columns=rename_cols)
 raw.head()
 
 # %%
+# keep only the factors
+factor_names = [date_col, "smb", "hml", "umd", "rmrf"]
+factors = raw[factor_names]
+
+factors.info()
+factors.head()
+
+# %%
 # export data
-raw.to_csv(processed_path["factor"], index=False)
+factors.to_csv(processed_path["factor"], index=False)

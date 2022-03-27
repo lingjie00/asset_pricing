@@ -6,7 +6,7 @@ import logging
 
 import pandas as pd
 import tensorflow as tf
-from common import configpath, load_data, projectpath, split_data
+from common import configpath, load_data, missing_code, projectpath, split_data
 
 from ap import create_gan, sharpe_loss, train_gan
 
@@ -23,6 +23,8 @@ tf.random.set_seed(20220102)
 select = "factor"
 with_macro = False
 
+logging.info(f"Run {select} and macro {with_macro}")
+
 data = load_data(select, load_macro=with_macro)
 firm = data["firm"]
 if with_macro:
@@ -31,11 +33,12 @@ else:
     macro = None
 
 firm.info()
-firm.head()
+firm.replace(missing_code, float("NaN")).dropna().head()
 
 # %%
 if with_macro:
-    macro.head()
+    print(macro.info())
+    print(macro.head())
 
 # %%
 """Split data"""
@@ -70,6 +73,7 @@ train_gan(
 
 # %%
 """Compute final pricing loss and Sharpe loss for all data"""
+logging.info(f"Run {select} and macro {with_macro}")
 # Loss for train
 sdf_train = train_networks["discriminant_network"](train_data_list)
 sharpe_loss_train = sharpe_loss(sdf_train)
@@ -87,6 +91,21 @@ test_networks["discriminant_network"].set_weights(
 sdf_test = test_networks["discriminant_network"](test_data_list)
 sharpe_loss_test = sharpe_loss(sdf_test)
 logging.info(f"GAN Trained test SHARPE loss: {sharpe_loss_test}")
+
+sharpe_results = {
+    "train": sharpe_loss_train.numpy(),
+    "valid": sharpe_loss_valid.numpy(),
+    "test": sharpe_loss_test.numpy()
+}
+sharpe_results = pd.DataFrame(
+    sharpe_results, index=[f"{select} with macro {with_macro}"]
+)
+
+sharpe_results.to_csv(
+    f"{projectpath}/data/results/sharpe_uk_{select}_macro_{with_macro}.csv"
+)
+
+sharpe_results
 
 # %%
 # export sdf

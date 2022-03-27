@@ -1,5 +1,7 @@
 """Storing items shared across all scripts/notebooks."""
+import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression
 
 """Hyper-parameters"""
 # column names
@@ -8,15 +10,15 @@ raw_price_col = "adj_close"
 price_col = "excess_returns"
 symbol_col = "symbol"
 date_col = "date"
-risk_col = "SONIA"
+risk_col = "rf"
 
-# express split in incremental percentage
-train_percent = 0.6
-valid_percent = 0.8
+# express split in incremental index
+train_index = 144
+valid_index = 192
 
 # date range
-min_date = "1997-01-01"
-max_date = "2021-12-01"
+min_date = "1998-01-01"
+max_date = "2017-12-31"
 
 
 """Paths"""
@@ -36,8 +38,10 @@ raw_path = {
     "fundamental": f"{dbpath}/Finage_LSE_data/fundamental_quarter.csv",
     "price_monthly": f"{dbpath}/yfinance/1mo.csv",
     "price_daily": f"{dbpath}/yfinance/1d.csv",
-    "risk_monthly": f"{dbpath}/IUMASOIA.csv",
-    "risk_daily": f"{dbpath}/SONIA_daily.csv"
+    "risk_monthly": f"{dbpath}/uk_monthlyfactors/monthlyfactors.csv",
+    "risk_daily": f"{dbpath}/uk_dailyfactors/dailyfactors.csv",
+    "equal_weighted_portfolio": f"{dbpath}/6ports_size_bm/ew_sizebm_6groups.csv",  # noqa
+    "value_weighted_portfolio": f"{dbpath}/6ports_size_bm/vw_sizebm_6groups.csv",  # noqa
 }
 # storing the filepath for intermediate data files
 processed_path = {
@@ -109,7 +113,7 @@ def load_data(name, load_macro: bool):
     macro = pd.read_csv(data_path["macro"], index_col=0)\
         .rename(columns={"Date": date_col})
     macro[date_col] = pd.to_datetime(macro[date_col])\
-        + pd.DateOffset(months=1) + pd.tseries.offsets.MonthEnd()
+        + pd.tseries.offsets.MonthEnd()
     macro = macro.set_index(date_col)
     macro = macro.loc[firm.index.get_level_values(date_col).unique()]
     return {"firm": firm, "macro": macro}
@@ -121,9 +125,6 @@ def split_data(firm, macro=None):
     num_firms = firm.index.get_level_values(symbol_col).unique().shape[0]
     num_cols = firm.columns.shape[0]
     firm_reshape = firm.values.reshape(-1, num_firms, num_cols)
-    # splitting index
-    train_index = round(firm_reshape.shape[0] * train_percent)
-    valid_index = round(firm_reshape.shape[0] * valid_percent)
     # ensure the first column contains the return
     assert(firm.columns[0] == price_col)
     # split the data
@@ -151,3 +152,55 @@ def split_data(firm, macro=None):
         "valid": valid_data,
         "test": test_data
     }
+
+
+def fama_sharpe(df):
+    """Take in factors data and compute Sharpe ratio"""
+    Ef = df.mean(axis=0).values
+    Eft = np.transpose(Ef)
+    fCov = np.cov(df.values, rowvar=False)
+    sharpe_squared = Eft @ np.linalg.inv(fCov) @ Ef
+    return np.sqrt(sharpe_squared)
+
+
+def alpha_beta(df):
+    """Compute the alpha beta"""
+    coef = {}
+
+    for symbol in df.index.get_level_values("symbol").unique():
+        subset_data = df.loc[symbol].dropna()
+        # split data
+        train_index = round(subset_data.shape[0] * 0.6)
+        valid_index = train_index
+        train_data = subset_data.iloc[:train_index, :].dropna()
+        valid_data = subset_data.iloc[valid_index:, :].dropna()
+        test_data = subset_data.iloc[valid_index:, :].dropna()
+        # check if we have sufficient data points
+        threshold = 12
+        if (train_data.shape[0] < threshold)\
+                | (valid_data.shape[0] < threshold)\
+                | (test_data.shape[0] < threshold):
+            continue
+        # select X, y
+        train_X = train_data.drop(columns=[price_col])
+        train_y = train_data.loc[:, price_col]
+        valid_X = valid_data.drop(columns=[price_col])
+        valid_y = valid_data.loc[:, price_col]
+        test_X = test_data.drop(columns=[price_col])
+        test_y = test_data.loc[:, price_col]
+        # fitting
+        lr = LinearRegression()\
+            .fit(train_X, train_y)
+        # prediction
+        valid_pred = lr.predict(valid_X)
+        valid_intercept = (valid_y - valid_pred).mean()
+        test_pred = lr.predict(test_X)
+        test_intercept = (test_y - test_pred).mean()
+        # storing results
+        coef[symbol] = dict(zip(lr.feature_names_in_, lr.coef_))
+        coef[symbol]["train_intercept"] = lr.intercept_
+        coef[symbol]["valid_intercept"] = valid_intercept
+        coef[symbol]["test_intercept"] = test_intercept
+
+    coef = pd.DataFrame(coef).T
+    return coef

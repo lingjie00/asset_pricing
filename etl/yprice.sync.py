@@ -6,8 +6,13 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 from common import (date_col, max_date, missing_code, price_col,
+<<<<<<< HEAD
                     processed_path, raw_path, raw_price_col, reindex,
                     remove_missingChar, risk_col, symbol_col)
+=======
+                    processed_path, raw_path, raw_price_col,
+                    risk_col, symbol_col)
+>>>>>>> origin/uk_gan
 
 pd.set_option('display.max_rows', 1000)
 pd.set_option('display.max_columns', 1000)
@@ -15,13 +20,17 @@ pd.set_option('display.max_columns', 1000)
 # %%
 """Risk free rate"""
 # monthly
+risk_cols = [date_col, risk_col]
 risk_monthly_raw = pd.read_csv(raw_path["risk_monthly"])
-risk_monthly_raw.columns = [date_col, risk_col + "_raw"]
-risk_monthly_raw[date_col] = pd.to_datetime(risk_monthly_raw[date_col])
+risk_monthly_raw[date_col] = pd.to_datetime(
+    risk_monthly_raw["month"], format="%Ym%m")\
+    .dt.to_period("M").dt.to_timestamp("M")
+risk_monthly_raw = risk_monthly_raw[risk_cols]
 # daily
 risk_daily_raw = pd.read_csv(raw_path["risk_daily"])
-risk_daily_raw.columns = [date_col, risk_col + "_raw"]
-risk_daily_raw[date_col] = pd.to_datetime(risk_daily_raw[date_col])
+risk_daily_raw[date_col] = pd.to_datetime(
+    risk_daily_raw["date"])
+risk_daily_raw = risk_daily_raw[risk_cols]
 
 
 # %%
@@ -36,8 +45,6 @@ risk_daily_raw.head()
 risk_monthly = risk_monthly_raw.set_index(date_col)\
     .sort_values(by=date_col)\
     .astype("float")
-risk_monthly[risk_col] = np.log(risk_monthly[risk_col + "_raw"])\
-    - np.log(risk_monthly[risk_col + "_raw"].shift(1))
 
 risk_monthly.plot()
 
@@ -48,8 +55,6 @@ risk_monthly.head()
 risk_daily = risk_daily_raw.set_index(date_col)\
     .sort_values(by=date_col)\
     .astype("float")
-risk_daily[risk_col] = np.log(risk_daily[risk_col + "_raw"])\
-    - np.log(risk_daily[risk_col + "_raw"].shift(1))
 
 risk_daily.plot()
 
@@ -116,17 +121,17 @@ monthly_price.loc["3IN"]
 # %%
 # process daily data
 daily_price = price_daily_raw\
-        .set_index([symbol_col, date_col])\
-        .sort_values(by=[symbol_col, date_col])\
-        .groupby(symbol_col)\
-        .apply(lambda x: np.log(x) - np.log(x.shift(1)))\
-        .combine_first(risk_daily)
+    .set_index([symbol_col, date_col])\
+    .sort_values(by=[symbol_col, date_col])\
+    .groupby(symbol_col)\
+    .apply(lambda x: np.log(x) - np.log(x.shift(1)))\
+    .combine_first(risk_daily)
 
 daily_price.loc["3IN"]
 
 # %%
 daily_price[price_col] = daily_price[raw_price_col]\
-        - daily_price[risk_col]
+    - daily_price[risk_col]
 daily_price = daily_price[[price_col]].astype("float")
 
 daily_price.plot()
