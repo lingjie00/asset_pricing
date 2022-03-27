@@ -2,16 +2,9 @@
 """Library"""
 import matplotlib.pyplot as plt
 import pandas as pd
-<<<<<<< HEAD
-import statsmodels.api as sm
-from common import (data_path, date_col, missing_code, price_col, projectpath,
-                    symbol_col, train_percent, valid_percent)
-from sklearn.linear_model import LinearRegression
-=======
 from common import (alpha_beta, data_path, date_col, fama_sharpe, missing_code,
                     price_col, processed_path, projectpath, symbol_col,
                     train_index, valid_index)
->>>>>>> origin/uk_gan
 
 # load data
 select = "factor"

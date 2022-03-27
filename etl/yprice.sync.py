@@ -6,13 +6,8 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 from common import (date_col, max_date, missing_code, price_col,
-<<<<<<< HEAD
-                    processed_path, raw_path, raw_price_col, reindex,
-                    remove_missingChar, risk_col, symbol_col)
-=======
                     processed_path, raw_path, raw_price_col,
                     risk_col, symbol_col)
->>>>>>> origin/uk_gan
 
 pd.set_option('display.max_rows', 1000)
 pd.set_option('display.max_columns', 1000)
