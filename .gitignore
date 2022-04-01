@@ -11,3 +11,4 @@ logs/
 data/*
 *.csv
 */*.egg-info/
+*.ipynb
