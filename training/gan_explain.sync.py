@@ -3,10 +3,10 @@
 # library
 import logging
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import matplotlib.pyplot as plt
 from common import (configpath, load_data, missing_code, price_col,
                     projectpath, split_data)
 
@@ -66,7 +66,7 @@ old_weight = weight_network(train_data_list)
 # %%
 """Compute sensitivity for firm characteristics"""
 eps = 1e-6
-firm_sensi = {}
+sensi = {}
 columns = list(firm.columns)
 columns.remove(price_col)
 
@@ -80,23 +80,12 @@ for index, col in enumerate(columns):
     new_weight = weight_network(new_data)
     gradient = (new_weight - old_weight) / eps
     vi = np.sum(np.abs(gradient))
-    firm_sensi[col] = [vi]
+    sensi[col] = [vi]
 
-firm_sensi = pd.DataFrame(firm_sensi).T
-firm_sensi.columns = ["VI"]
-# normalise sensitivity
-c = firm_sensi.sum()
-firm_sensi = firm_sensi / c
-firm_sensi = firm_sensi.assign(source="firm")
+sensi = pd.DataFrame(sensi).T
+sensi.columns = ["VI"]
+sensi = sensi.assign(source="firm")
 
-# save
-firm_sensi.to_csv(
-    f"{projectpath}/data/results/sensi_uk_{select}_macro_{with_macro}.csv"
-)
-
-firm_sensi.sort_values(by="VI", ascending=False)
-
-# %%
 """Compute sensitivity for macroeconomic data"""
 if with_macro:
     eps = 1e-6
@@ -114,18 +103,31 @@ if with_macro:
 
     macro_sensi = pd.DataFrame(macro_sensi).T
     macro_sensi.columns = ["VI"]
-    # normalise macro_sensi
-    c = macro_sensi.sum()
-    macro_sensi = macro_sensi / c
     macro_sensi = macro_sensi.assign(source="macro")
-    sensi = pd.concat([firm_sensi, macro_sensi])
+    sensi = pd.concat([sensi, macro_sensi])
 
-    # save
-    sensi.to_csv(
-        f"{projectpath}/data/results/sensi_uk_{select}_macro_{with_macro}.csv"
-    )
+# normalise and save sensitivity
+sensi["VI"] = sensi["VI"] / sensi["VI"].sum()
+sensi = sensi.reset_index()
 
-    sensi.sort_values(by="VI", ascending=False)
+# regroup macro data
+if with_macro:
+    macro_threshold = 10
+    bottom_index = macro_sensi.sort_values(by="VI", ascending=False)\
+        .iloc[macro_threshold:].index.values
+    sensi["variable"] = sensi["index"].replace(bottom_index, "rest of macro")
+sensi = sensi.groupby("variable")["VI"].sum().sort_values()
+
+sensi.to_csv(
+    f"{projectpath}/data/results/sensi_uk_{select}_macro_{with_macro}.csv"
+)
+
+# %%
+sensi.plot.barh(x="variable", y="VI", xlabel="")
+plt.tight_layout()
+plt.savefig(
+    "../data/results/vi_uk_{select}_macro_{with_macro}.pdf",
+    dpi=120, format="pdf")
 
 # %%
 """SDF weight structure"""
