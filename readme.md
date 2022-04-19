@@ -2,14 +2,14 @@
 
 This repo contains the Python code implementation for my
 undergraduate thesis paper. The paper empirically validated
-Chen et al. (2019)'s GAN model in the UK LSE 1998-2017 data.
+Chen et al. (2021)'s GAN model in the UK LSE 1998-2017 data.
 
-Chen et al. (2019)'s GAN model implemented based on
-TensorFlow v1 can be found in their (GitHub
-repo)[https://github.com/jasonzy121/Deep_Learning_Asset_Pricing]
+Chen et al. (2021)'s GAN model implemented based on
+TensorFlow v1 can be found in their [GitHub
+repo](https://github.com/jasonzy121/Deep_Learning_Asset_Pricing)
 In this repo we implemented the model using TensorFlow v2.
 
-Chen, L., Pelger, M., & Zhu, J. (2019). Deep learning in
+Chen, L., Pelger, M., & Zhu, J. (2021). Deep learning in
 asset pricing. Research Methods & Methodology in Accounting
 eJournal.
 
